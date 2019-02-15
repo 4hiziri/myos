@@ -8,16 +8,18 @@
 %define NumHeads	0x0040
 %define	HiddenSec	0x00000800
 %define	TotSec		0x00800000
-%define	SecPerFat	0x00003939
+%define	SecPerFat	0x00000ffc	; 4096
 	
 ;;; bootloader
 [BITS 16]
 	ORG	0x7c00
 
-;;; BPB for FAT32
+;;; Boot Sector field
 	jmp	BS_BootCode32	; jump to bootstrap code
 	nop			; padding nop to fill field
 BS_OEMName	db	"MYOS32  "
+
+;;; BIOS Parameter Block for FAT32
 BPB_BytePerSec	dw	BytePerSec	; Byte per Sector
 BPB_SecPerClus	db	SecPerClus	; Sector per Cluster, Cluster is an allocation unit.
 BPB_RsvdSecCnt	dw	RsvdSecCnt	; Reserved Sector Count, least 1
@@ -41,6 +43,7 @@ BPB_BkBootSec	dw	0x0006	   ; Sector of boot-sector's backup. usualy 6
 BPB_Reserved1	dd	0x00000000 ; Reserved field, should be 0
 BPB_Reserved2	dd	0x00000000
 BPB_Reserved3	dd	0x00000000
+;;; Boot Sector
 BS_DrvNum	db	0x80	; drive num, used in disk BIOS. in fact, depends on system
 BS_Rserved1	db	0x00	; Reserved, should be 0
 BS_BootSig	db	0x29	; extended boot signature, 0x29. this means later 3 fields exists
