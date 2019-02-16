@@ -9,7 +9,7 @@
 %define	HiddenSec	0x00000800
 %define	TotSec		0x00800000
 %define	SecPerFat	0x00000ffc	; 4096
-	
+
 ;;; bootloader
 [BITS 16]
 	ORG	0x7c00
@@ -26,7 +26,7 @@ BPB_RsvdSecCnt	dw	RsvdSecCnt	; Reserved Sector Count, least 1
 BPB_NumFATs	db	NumFATs		; Num of FATS, one is for duplication
 BPB_RootEntCnt	dw	RootEntCnt	; Num of entry in root in FAT12/16. In FAT32, should be 0
 BPB_TotSec16	dw	0x0000		; All sectors in the volume. In FAT32, should be 0
-BPB_Media	db	0xf8		; Legacy field, unused but 
+BPB_Media	db	0xf8		; Legacy field, unused but
 BPB_FATSz16	dw	0x0000		; Use in FAT12/16, should be 0 in FAT32. can define this is FAT12/16 or FAT32 by this.
 BPB_SecPerTrk	dw	SecPerTrk	; Sectors per Truck. related to a storage that use geometery, used in IBM PC's disk BIOS
 ;;; Number of head. related to a storage that use geometery, used in IBM PC's disk BIOS
@@ -34,9 +34,9 @@ BPB_NumHeads	dw	NumHeads
 ;;; Number of hidden sectors before this volume. depends on system. Only for IBM PC disk BIOS
 BPB_HiddSec	dd	HiddenSec
 BPB_TotSec32	dd	TotSec		; Total Sectors without hidden sectors. change 0x01ca3800 => 4GB
-BPB_FATz32	dd	SecPerFat 	; Sector per FAT. FAT Area size is BPB_NUMFATs * this.
-BPB_ExtFlags	dw	0x0000	   	; Flags but i don't know that mean
-BPB_FSVer	dw	0x0000	   	; Version of FAT32. Don't use newer version
+BPB_FATz32	dd	SecPerFat	; Sector per FAT. FAT Area size is BPB_NUMFATs * this.
+BPB_ExtFlags	dw	0x0000		; Flags but i don't know that mean
+BPB_FSVer	dw	0x0000		; Version of FAT32. Don't use newer version
 BPB_RootClus	dd	0x00000002	; Top Cluster number of root directory. 2 is top cluster
 BPB_FSInfo	dw	0x0001	   ; In reserved area, sector number of FSINFO struct. always be 1
 BPB_BkBootSec	dw	0x0006	   ; Sector of boot-sector's backup. usualy 6
@@ -81,7 +81,7 @@ BS_BootCode32:
 	hlt
 
 HELLO	db	"Hello, world!",0x00
-	
+
 ;;; for test, display message
 DisplayMessage:
 	push	ax
@@ -99,7 +99,7 @@ StartDispMsg:
 	pop	bx
 	pop	ax
 	ret
-	
+
 ;;; Initialize Storage
 InitDrive:
 	push	ax
@@ -125,17 +125,17 @@ ReadSectors:
 	;; prologue
 	push	dx
 
-	call	LBA2CHS	
+	call	LBA2CHS
 	mov	ah, 0x02		; read sector mode
 	mov	al, cl			; num of sector to read
 	mov	ch, [physicalTrack]	; under 1 byte of truck number
 	mov	cl, [physicalSector]	; sector number
 	mov	dh, [physicalHead]	; header num
-	mov	dl, 0x00		; drive num	
+	mov	dl, 0x00		; drive num
 	int	0x13
 	;; error check
 	jc	ReadSecErr
-	
+
 	;; epilogue
 	pop	dx
 	ret
@@ -144,8 +144,8 @@ ReadSecErr:
 	call	DisplayMessage
 	hlt
 ReadSecErrMsg	db	"ReadSectorsError",0x00
-	
-;;; 
+
+;;;
 ;;; LBA2CHS
 ;;; input AX:sector number(LBA)
 ;;; output AX:quotient, DX:Remainder
@@ -170,10 +170,26 @@ LBA2CHS:
 physicalSector	db	0x00
 physicalHead	db	0x00
 physicalTrack	db	0x00
-	
+
 ;;; padding
 TIMES 510 - ($ - $$) DB 0
 
 BS_BootSign	dw	0xaa55
+
+;;; FSInfo of FAT32. pointed by BPB_FSInfo
+FSI_LeadSig	dd	0x41615252		; Signature for FSInfo
+TIMES	480	db 0				; reserved area
+FSI_StructSig	dd	0x61417272	; Signature for FSInfo
+FSI_Free_Count	dd	0x0007fdfd	; num of free cluster, 0xffffffff means this field is unavailable
+FSI_Nxt_Free	dd	0x00000002	; last allocated cluster number, 0xffffffff means unavailable
+TIMES	12	db	0				; reserved area
+FSI_TrailSig	dd	0xaa550000	; Signature for FSInfo tail
+;;; If sector size is larger than 512, needs padding to fill sector
+
+;;; padding 4 sectors, until [5]
+TIMES	0x200 * 4	db	0
 	
+;;; Backup of FSInfo of FAT32. pointed by BPB_BkBootSec
+;;; Not use now!
+
 ;;; rest should be filled by 0
