@@ -8,7 +8,7 @@
 %define NumHeads	0x0040
 %define	HiddenSec	0x00000800
 %define	TotSec		0x00800000
-%define	SecPerFat	0x00000ffc	; 4096
+%define	SecPerFat	0x00001000	; 4096
 
 ;;; bootloader
 [BITS 16]
@@ -187,7 +187,7 @@ FSI_TrailSig	dd	0xaa550000	; Signature for FSInfo tail
 ;;; If sector size is larger than 512, needs padding to fill sector
 
 ;;; padding 4 sectors, until [5]
-TIMES	0x200 * 4	db	0
+;;; TIMES	0x200 * 4	db	0
 	
 ;;; Backup of FSInfo of FAT32. pointed by BPB_BkBootSec
 ;;; Not use now!
