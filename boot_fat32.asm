@@ -9,6 +9,8 @@
 %define	HiddenSec	0x00000800
 %define	TotSec		0x00800000
 %define	SecPerFat	0x00001000	; 4096
+%xdefine TotTrucks	TotSec / SecPerTrk
+%xdefine BytePerTrk	BytePerSec * SecPerTrk	
 
 ;;; bootloader
 [BITS 16]
@@ -68,19 +70,26 @@ BS_BootCode32:
 
 	mov	si, HELLO
 	call	DisplayMessage
-
+	
 	call	InitDrive
 
-	mov	ax, 0x1000	; sector number of first sectors to read
-	mov	bx, 0x1000
+	mov	ax, 0x0101	; Truck number of first sectors to read
+	mov	bx, 0x0820
 	mov	es, bx		; base address
-	mov	bx, 0x0000	; addr
-	mov	cl, 0x00	; number of sectors to read
-	call	ReadSectors
+	mov	bx, 0x0000	; addr to read
+	mov	cx, 0x000a	; number of trucks to read
+	call	ReadTrucks
+
+	jmp	0x40e000
+	
+	mov	si, BOOT_END_MSG
+	call DisplayMessage
 
 	hlt
 
-HELLO	db	"Hello, world!",0x00
+HELLO	db	"Hello, world!",0x0d,0x0a,0x00
+BOOT_END_MSG		db	"BOOT END!!",0x0d,0x0a,0x00
+DEBUG	db	"SUCCESS",0x0d,0x0a,0x00
 
 ;;; for test, display message
 DisplayMessage:
@@ -108,36 +117,68 @@ InitDrive:
 	mov	dx, ax
 	int	0x13		; BIOS interrupt: Disk Services
 	jc	InitDrive_Error
+	pop	dx
+	pop	ax
 	ret
 InitDrive_Error:
 	mov	si, InitDrvErrMsg
 	call	DisplayMessage
 	hlt
-InitDrvErrMsg	db	"InitDrive Error", 0x00
+InitDrvErrMsg	db	"InitDrive Error", 0x0d,0x0a,0x00
 
+;;; Read Sector by Trucks from drive
+;;; ax:	truck number
+;;; bx:	address to read trucks
+;;; es:	base address to read trucks
+;;; cx:	the number of trucks to read
+;;;
+;;; WARN: Only word range!
+ReadTrucks:
+	pusha
+
+	mov	di,	cx
+	;; TODO: check max Truck num
+	;; convert truck num to sector num
+	mov	dx, [BPB_SecPerTrk]
+	mul	dx	
+
+	;; Read trucsk by one
+	mov	cl,	[BPB_SecPerTrk]
+	xor	si,	si					; for counter
+ReadTrucks_Loop:
+	cmp	si,	di
+	je	ReadTrucks_LoopEnd
+	call	ReadSectors
+	inc	si
+	add	bx,	BytePerTrk
+ReadTrucks_LoopEnd:	
+	
+	popa
+	ret
+	
 ;;; Read Sector from drive
 ;;; args
 ;;; ax: sector number
-;;; bx: address to write sectors
-;;; es: base address to write sectors
+;;; bx: address to read sectors
+;;; es: base address to read sectors
 ;;; cl: the number of sector to read
 ReadSectors:
 	;; prologue
-	push	dx
-
-	call	LBA2CHS
+	pusha
+	
+	call	LBA2CHS	
 	mov	ah, 0x02		; read sector mode
-	mov	al, cl			; num of sector to read
-	mov	ch, [physicalTrack]	; under 1 byte of truck number
+	mov	al, cl		; num of sector to read
 	mov	cl, [physicalSector]	; sector number
-	mov	dh, [physicalHead]	; header num
-	mov	dl, 0x00		; drive num
+	mov	ch, [physicalTruck]		; under 1 byte of truck number	
+	mov	dh, [physicalHead]		; header num
+	mov	dl, 0x00				; drive num
 	int	0x13
 	;; error check
 	jc	ReadSecErr
-
+	
 	;; epilogue
-	pop	dx
+	popa
 	ret
 ReadSecErr:
 	mov	si, ReadSecErrMsg
@@ -163,14 +204,29 @@ LBA2CHS:
 	xor	dx, dx
 	div	word [BPB_NumHeads]
 	mov	byte [physicalHead], dl
-	mov	byte [physicalTrack], al
+	mov	byte [physicalTruck], al
 	pop	dx
 	pop	ax
 	ret
 physicalSector	db	0x00
 physicalHead	db	0x00
-physicalTrack	db	0x00
+physicalTruck	db	0x00
 
+;;; cl: sector num
+;;; ch: truck num
+;; IncSectorNum:
+;; 	inc	cl
+;; 	cmp	cl, SecPerTrk
+;; 	je	IncSectorNum_IncTruckNum
+;; 	jmp	IncSectorNumEnd
+;; IncSectorNum_IncTruckNum:
+;; 	xor	cl,	cl
+;; 	inc	ch
+;; 	cmp	ch, 
+;; IncSectorNumEnd:
+;; 	ret
+;;; comment out, because there is no problem reading disk by specifing sector num
+	
 ;;; padding
 TIMES 510 - ($ - $$) DB 0
 
