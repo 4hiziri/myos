@@ -9,8 +9,9 @@
 %define	HiddenSec	0x00000800
 %define	TotSec		0x00800000
 %define	SecPerFat	0x00001000	; 4096
-%xdefine TotTrucks	TotSec / SecPerTrk
-%xdefine BytePerTrk	BytePerSec * SecPerTrk	
+%xdefine TotTracks	TotSec / SecPerTrk ; 0x40000
+%xdefine BytePerTrk	BytePerSec * SecPerTrk
+%define	HardDiskFlag	0x80	; if hard disk, 0x80 else 0x00
 
 ;;; bootloader
 [BITS 16]
@@ -19,6 +20,7 @@
 ;;; Boot Sector field
 	jmp	BS_BootCode32	; jump to bootstrap code
 	nop			; padding nop to fill field
+
 BS_OEMName	db	"MYOS32  "
 
 ;;; BIOS Parameter Block for FAT32
@@ -30,7 +32,7 @@ BPB_RootEntCnt	dw	RootEntCnt	; Num of entry in root in FAT12/16. In FAT32, shoul
 BPB_TotSec16	dw	0x0000		; All sectors in the volume. In FAT32, should be 0
 BPB_Media	db	0xf8		; Legacy field, unused but
 BPB_FATSz16	dw	0x0000		; Use in FAT12/16, should be 0 in FAT32. can define this is FAT12/16 or FAT32 by this.
-BPB_SecPerTrk	dw	SecPerTrk	; Sectors per Truck. related to a storage that use geometery, used in IBM PC's disk BIOS
+BPB_SecPerTrk	dw	SecPerTrk	; Sectors per Track. related to a storage that use geometery, used in IBM PC's disk BIOS
 ;;; Number of head. related to a storage that use geometery, used in IBM PC's disk BIOS
 BPB_NumHeads	dw	NumHeads
 ;;; Number of hidden sectors before this volume. depends on system. Only for IBM PC disk BIOS
@@ -70,18 +72,22 @@ BS_BootCode32:
 
 	mov	si, HELLO
 	call	DisplayMessage
-	
 	call	InitDrive
 
-	mov	ax, 0x0101	; Truck number of first sectors to read
 	mov	bx, 0x0820
-	mov	es, bx		; base address
-	mov	bx, 0x0000	; addr to read
-	mov	cx, 0x000a	; number of trucks to read
-	call	ReadTrucks
+	mov	es,	bx
+	xor	bx,	bx
+	mov	cl,	0x10
+	mov	ax,	0x4018
+	call ReadSectors
 
 	jmp	0x40e000
-	
+
+	;; Change screen mode
+	mov	al, 0x13				; VGA Graphics, 320x200x8bit
+	mov	ah, 0x00
+	int	0x10
+
 	mov	si, BOOT_END_MSG
 	call DisplayMessage
 
@@ -91,7 +97,6 @@ HELLO	db	"Hello, world!",0x0d,0x0a,0x00
 BOOT_END_MSG		db	"BOOT END!!",0x0d,0x0a,0x00
 DEBUG	db	"SUCCESS",0x0d,0x0a,0x00
 
-;;; for test, display message
 DisplayMessage:
 	push	ax
 	push	bx
@@ -111,14 +116,18 @@ StartDispMsg:
 
 ;;; Initialize Storage
 InitDrive:
-	push	ax
-	push	dx
+	pusha
+
 	xor	ax, ax
 	mov	dx, ax
+	or	dl,	0x80
 	int	0x13		; BIOS interrupt: Disk Services
 	jc	InitDrive_Error
-	pop	dx
-	pop	ax
+
+	mov	dl,	0x80
+	call DiskInfo
+
+	popa
 	ret
 InitDrive_Error:
 	mov	si, InitDrvErrMsg
@@ -126,36 +135,35 @@ InitDrive_Error:
 	hlt
 InitDrvErrMsg	db	"InitDrive Error", 0x0d,0x0a,0x00
 
-;;; Read Sector by Trucks from drive
-;;; ax:	truck number
-;;; bx:	address to read trucks
-;;; es:	base address to read trucks
-;;; cx:	the number of trucks to read
+;;; Read Sector by Tracks from drive
+;;; ax:	track number
+;;; bx:	address to read tracks
+;;; es:	base address to read tracks
+;;; cx:	the number of tracks to read
 ;;;
 ;;; WARN: Only word range!
-ReadTrucks:
+ReadTracks:
 	pusha
 
 	mov	di,	cx
-	;; TODO: check max Truck num
-	;; convert truck num to sector num
+	;; TODO: check max Track num
+	;; convert track num to sector num
 	mov	dx, [BPB_SecPerTrk]
-	mul	dx	
+	mul	dx
 
 	;; Read trucsk by one
 	mov	cl,	[BPB_SecPerTrk]
 	xor	si,	si					; for counter
-ReadTrucks_Loop:
+ReadTracks_Loop:
 	cmp	si,	di
-	je	ReadTrucks_LoopEnd
+	je	ReadTracks_LoopEnd
 	call	ReadSectors
 	inc	si
 	add	bx,	BytePerTrk
-ReadTrucks_LoopEnd:	
-	
+ReadTracks_LoopEnd:
 	popa
 	ret
-	
+
 ;;; Read Sector from drive
 ;;; args
 ;;; ax: sector number
@@ -163,21 +171,32 @@ ReadTrucks_LoopEnd:
 ;;; es: base address to read sectors
 ;;; cl: the number of sector to read
 ReadSectors:
-	;; prologue
 	pusha
-	
-	call	LBA2CHS	
+
+	call LBA2CHS4HD
+
 	mov	ah, 0x02		; read sector mode
 	mov	al, cl		; num of sector to read
-	mov	cl, [physicalSector]	; sector number
-	mov	ch, [physicalTruck]		; under 1 byte of truck number	
-	mov	dh, [physicalHead]		; header num
-	mov	dl, 0x00				; drive num
+
+	;; cx[5:0]: sector index
+	;; cx[7:6][15:8]: track index
+	xor dx,	dx
+	mov	cx, [physicalTrack]
+	mov	dx,	cx
+	and	dx,	0x0300				; set upper	2 bits to [7:6]
+	shr	dx,	0x02
+	shl	cx,	0x08				; [15:8] = track[7:0]
+	add	cx,	dx					; [15:6] = track[7:0][10:8]
+	xor	dx,	dx
+	mov	dl, [physicalSector]
+	add	cx,	dx	; [5:0] = sector num
+
+	mov	dh, [physicalHead]
+	mov	dl, 0x80				; use first hard disk
+
 	int	0x13
 	;; error check
 	jc	ReadSecErr
-	
-	;; epilogue
 	popa
 	ret
 ReadSecErr:
@@ -185,48 +204,77 @@ ReadSecErr:
 	call	DisplayMessage
 	hlt
 ReadSecErrMsg	db	"ReadSectorsError",0x00
+	ret
 
+;;; LBA2CHS4HD
+;;; should call DISKINFO before call this
 ;;;
-;;; LBA2CHS
 ;;; input AX:sector number(LBA)
 ;;; output AX:quotient, DX:Remainder
 ;;; convert physical address to logical address
 ;;; physical sector = (logical sector MOD sectors per track) + 1
 ;;; physical head   = (logical sector / sectors per track) MOD number of heads
 ;;; physical track  = logical sector / (sectors per track * number of heads)
-LBA2CHS:
-	push	ax
-	push	dx
+LBA2CHS4HD:
+	pusha
+
 	xor	dx, dx
-	div	word [BPB_SecPerTrk] ; ax <= ax / arg, dx <= ax % arg
-	inc	dl
-	mov	byte [physicalSector], dl
-	xor	dx, dx
-	div	word [BPB_NumHeads]
+	div	word [DSecPerHead] ; ax <= ax / arg, dx <= ax % arg
+	inc dl
+	mov byte [physicalSector], dl
+
+	xor	dx,	dx
+	mov	bx,	dx
+	mov	bl,	[DHeadPerTrack]
+	div	word bx
 	mov	byte [physicalHead], dl
-	mov	byte [physicalTruck], al
-	pop	dx
-	pop	ax
+	mov	word [physicalTrack], ax
+
+	popa
 	ret
+;;; for LBA2CHS and LBA2CHS4HD
 physicalSector	db	0x00
 physicalHead	db	0x00
-physicalTruck	db	0x00
+physicalTrack	dw	0x0000
 
-;;; cl: sector num
-;;; ch: truck num
-;; IncSectorNum:
-;; 	inc	cl
-;; 	cmp	cl, SecPerTrk
-;; 	je	IncSectorNum_IncTruckNum
-;; 	jmp	IncSectorNumEnd
-;; IncSectorNum_IncTruckNum:
-;; 	xor	cl,	cl
-;; 	inc	ch
-;; 	cmp	ch, 
-;; IncSectorNumEnd:
-;; 	ret
-;;; comment out, because there is no problem reading disk by specifing sector num
-	
+;;; Get disk info, for hard disk
+;;; dl:	drive index
+;;; WARN: ES:DI may have to be 0 at some BIOS
+DiskInfo:
+	pusha
+
+	mov	ah,	0x08
+	int	0x13
+	jc	DISKINFOERR
+
+	mov	[DDiskNum],	dl
+	;; dh has last index of heads and that is 0-indexed
+	inc dh
+	mov	[DHeadPerTrack],	dh
+	mov	dx,	cx
+	and	cx,	0x3f				; get lower 6-bits
+	mov	[DSecPerHead], cx
+	;; get upper 8 bits and 7-6 bits, [7:6][15:8] is last index of track
+	mov	cx, dx
+	shr cx, 8
+	and	dx,	0x00c0
+	shl dx, 2
+	add	cx, dx
+	add	cx, 1
+	mov [DTrackPerDisk], cx
+
+	popa
+	ret
+DISKINFOERR:
+	mov	si, DiskInfoErrMsg
+	call DisplayMessage
+	hlt
+DDiskNum	db	0x00
+DHeadPerTrack	db	0x00
+DTrackPerDisk	dw	0x0000
+DSecPerHead	db	0x00
+DiskInfoErrMsg	db	"DiskInfoError",0x0d,0x0a,0x00
+
 ;;; padding
 TIMES 510 - ($ - $$) DB 0
 
@@ -242,9 +290,6 @@ TIMES	12	db	0				; reserved area
 FSI_TrailSig	dd	0xaa550000	; Signature for FSInfo tail
 ;;; If sector size is larger than 512, needs padding to fill sector
 
-;;; padding 4 sectors, until [5]
-;;; TIMES	0x200 * 4	db	0
-	
 ;;; Backup of FSInfo of FAT32. pointed by BPB_BkBootSec
 ;;; Not use now!
 
