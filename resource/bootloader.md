@@ -1,4 +1,8 @@
 # 起動時の処理
+
+make sample image file
+`dd iflag=fullblock if=/dev/zero of=floppy_zero.img conv=notrunc bs=4096 count=1048576`
+
 BIOSが起動
 まず最初にPOST(Power On Self Test)という処理が実行される
 
