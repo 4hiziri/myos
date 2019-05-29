@@ -81,12 +81,12 @@ BS_BootCode32:
 	mov	ax,	0x4018
 	call ReadSectors
 
-	jmp	0x40e000
+	jmp	0x8200					; addr loaded OS image
 
 	;; Change screen mode
-	mov	al, 0x13				; VGA Graphics, 320x200x8bit
-	mov	ah, 0x00
-	int	0x10
+	;; mov	al, 0x13				; VGA Graphics, 320x200x8bit
+	;; mov	ah, 0x00
+	;; int	0x10
 
 	mov	si, BOOT_END_MSG
 	call DisplayMessage
