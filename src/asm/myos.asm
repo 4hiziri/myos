@@ -68,7 +68,7 @@ pipelineflush:
 	mov edi, BOTPAK		; 転送先
 	mov ecx, 512*1024/4
 	call memcpy
-
+	
 	;; transport disk data
 	;; boot sector
 	mov esi, 0x7c00			; src
@@ -98,10 +98,10 @@ pipelineflush:
 	mov edi, [ebx+12]
 	call memcpy
 skip:
-	;; mov esp, [ebx+12]	; stack init val
-	;; jmp dword 2*8:0x0000001b
-	mov esp, 0x00310000
-	jmp dword 2*8:0x00000000
+	mov esp, [ebx+12]	; stack init val
+	jmp dword 2*8:0x0000001b
+	;; mov esp, 0x00310000
+	;; jmp dword 2*8:0x00000000
 
 waitkbdout:
 	in al, 0x64
